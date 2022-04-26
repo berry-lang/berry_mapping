@@ -181,10 +181,11 @@ intptr_t be_convert_single_elt(bvm *vm, int idx, const char * arg_type, int *buf
     arg_type++;   // skip first character
     if (be_isclosure(vm, idx)) {
       ret = be_find_global_or_module_member(vm, "cb.make_cb");
+      // ret may 1 if direct function, or 2 if method+instance. 0 indicates an error
       if (ret) {
-        be_pushvalue(vm, idx);
-        be_pushvalue(vm, 1);
-        be_pushstring(vm, arg_type);
+        be_pushvalue(vm, idx);            // push function/closure as arg1
+        be_pushvalue(vm, 1);              // push `self` as arg2
+        be_pushstring(vm, arg_type);      // push name of the callback type (string) as arg3
         be_call(vm, 2 + ret);
         const void * func = be_tocomptr(vm, -(3 + ret));
         be_pop(vm, 3 + ret);
@@ -194,6 +195,9 @@ intptr_t be_convert_single_elt(bvm *vm, int idx, const char * arg_type, int *buf
       } else {
         be_raisef(vm, "type_error", "Can't find callback generator: 'cb.make_cb'");
       }
+    } else if (be_iscomptr(vm, idx)) {
+      // if it's a pointer, just pass it without any change
+      return (int32_t) be_tocomptr(vm, idx);;
     } else {
       be_raise(vm, "type_error", "Closure expected for callback type");
     }
@@ -216,7 +220,7 @@ intptr_t be_convert_single_elt(bvm *vm, int idx, const char * arg_type, int *buf
   if (provided_type) {
     bbool type_ok = bfalse;
     type_ok = (arg_type[0] == '.');                           // any type is accepted
-    type_ok = type_ok || (arg_type[0] == provided_type);      // or type is a match
+    type_ok = type_ok || (arg_type[0] == provided_type && arg_type[1] == 0);      // or type is a match (single char only)
     type_ok = type_ok || (ret == 0 && arg_type_len != 1);     // or NULL is accepted for an instance
     
     if (!type_ok) {
@@ -309,16 +313,14 @@ int be_check_arg_type(bvm *vm, int arg_start, int argc, const char * arg_type, i
     p_idx++;
   }
 
-  // special case when no parameters are passed but all are optional
-  if (NULL != arg_type && arg_type[arg_idx] == '[') {
-    arg_optional = btrue;
-    arg_idx++;
-  }
-  
   for (uint32_t i = 0; i < argc; i++) {
     type_short_name[0] = 0;   // clear string
     // extract individual type
-    if (NULL != arg_type) {
+    if (arg_type) {
+      if (arg_type[arg_idx] == '[' || arg_type[arg_idx] == ']') {   // '[' is a marker that following parameters are optional and default to NULL
+        arg_optional = btrue;
+        arg_idx++;
+      }
       switch (arg_type[arg_idx]) {
         case '-':
           arg_idx++;
@@ -355,10 +357,6 @@ int be_check_arg_type(bvm *vm, int arg_start, int argc, const char * arg_type, i
           arg_type = NULL;   // stop iterations
           break;
       }
-      if (arg_type && (arg_type[arg_idx] == '[' || arg_type[arg_idx] == ']')) {   // '[' is a marker that following parameters are optional and default to NULL
-        arg_optional = btrue;
-        arg_idx++;
-      }
     }
     // berry_log_C(">> be_call_c_func arg %i, type %s", i, arg_type_check ? type_short_name : "<null>");
     p[p_idx] = be_convert_single_elt(vm, i + arg_start, arg_type_check ? type_short_name : NULL, &buf_len);
@@ -376,7 +374,7 @@ int be_check_arg_type(bvm *vm, int arg_start, int argc, const char * arg_type, i
   }
 
   // check if we are missing arguments
-  if (!arg_optional && arg_type && arg_type[arg_idx] != 0) {
+  if (!arg_optional && arg_type && arg_type[arg_idx] != 0 && arg_type[arg_idx] != '[') {
     be_raisef(vm, "value_error", "Missing arguments, remaining type '%s'", &arg_type[arg_idx]);
   }
   return p_idx;
@@ -487,9 +485,8 @@ int be_call_c_func(bvm *vm, const void * func, const char * return_type, const c
   } else { // class name
     be_find_global_or_module_member(vm, return_type);
     be_pushcomptr(vm, (void*) ret);         // stack = class, ptr
-    be_pushcomptr(vm, (void*) -1);         // stack = class, ptr, -1
-    be_call(vm, 2);                 // instanciate with 2 arguments, stack = instance, ptr, -1
-    be_pop(vm, 2);                  // stack = instance
+    be_call(vm, 1);                 // instanciate with 2 arguments, stack = instance, ptr, -1
+    be_pop(vm, 1);                  // stack = instance
     be_return(vm);
   }
 }

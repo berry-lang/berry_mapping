@@ -18,10 +18,10 @@
  * We allow 4 parameters, or 3 if method (first arg is `self`)
  * This could be extended if needed
 \*********************************************************************************************/
-typedef int32_t (*berry_callback_t)(int32_t v0, int32_t v1, int32_t v2, int32_t v3);
-static int32_t call_berry_cb(int32_t num, int32_t v0, int32_t v1, int32_t v2, int32_t v3);
+typedef int (*berry_callback_t)(int v0, int v1, int v2, int v3);
+static int call_berry_cb(int num, int v0, int v1, int v2, int v3);
 
-#define BERRY_CB(n) int32_t berry_cb_##n(int32_t v0, int32_t v1, int32_t v2, int32_t v3) { return call_berry_cb(n, v0, v1, v2, v3); }
+#define BERRY_CB(n) int berry_cb_##n(int v0, int v1, int v2, int v3) { return call_berry_cb(n, v0, v1, v2, v3); }
 // list the callbacks
 BERRY_CB(0);
 BERRY_CB(1);
@@ -81,7 +81,7 @@ typedef struct be_callback_handler_list_t {
 
 static be_callback_hook be_cb_hooks[BE_MAX_CB] = {0};
 
-static int32_t be_cb_gen_cb(bvm *vm);
+static int be_cb_gen_cb(bvm *vm);
 static be_callback_handler_list_t be_callback_default_gen_cb = {
   NULL,
   be_const_func(&be_cb_gen_cb),
@@ -98,7 +98,7 @@ static be_callback_handler_list_t *be_callback_handler_list_head = &be_callback_
  * 
  * arg1: function (or closure)
 \*********************************************************************************************/
-static int32_t be_cb_add_handler(bvm *vm) {
+static int be_cb_add_handler(bvm *vm) {
   int32_t top = be_top(vm);
   if (top >= 1 && be_isfunction(vm, 1)) {
     bvalue *v = be_indexof(vm, 1);
@@ -125,7 +125,7 @@ static int32_t be_cb_add_handler(bvm *vm) {
  * 
  * No args
 \*********************************************************************************************/
-static int32_t be_cb_list_handlers(bvm *vm) {
+static int be_cb_list_handlers(bvm *vm) {
   be_newobject(vm, "list");
   for (be_callback_handler_list_t *elt = be_callback_handler_list_head; elt != NULL; elt = elt->next) {
     if (elt->vm == vm) { /* on purpose don't show the default handler, just pretend it's not there since it's default */
@@ -149,7 +149,7 @@ static int32_t be_cb_list_handlers(bvm *vm) {
  * arg2: type name for callback (optional)
  * argN: any other callback specific arguments (unlimited number, passed as-is)
 \*********************************************************************************************/
-static int32_t be_cb_make_cb(bvm *vm) {
+static int be_cb_make_cb(bvm *vm) {
   int32_t argc = be_top(vm);
   if (argc >= 1 && be_isfunction(vm, 1)) {
 
@@ -183,8 +183,9 @@ static int32_t be_cb_make_cb(bvm *vm) {
  * 
  * arg1: function (or closure)
 \*********************************************************************************************/
-static int32_t be_cb_gen_cb(bvm *vm) {
+static int be_cb_gen_cb(bvm *vm) {
   int32_t top = be_top(vm);
+  // tasmota_log_C(LOG_LEVEL_DEBUG, "BRY: gen_cb() called");
   if (top >= 1 && be_isfunction(vm, 1)) {
     // find first available slot
     int32_t slot;
@@ -212,7 +213,7 @@ static int32_t be_cb_gen_cb(bvm *vm) {
  * `get_cb_list`: Return the list of callbacks for this vm
  * 
 \*********************************************************************************************/
-static int32_t be_cb_get_cb_list(bvm *vm) {
+static int be_cb_get_cb_list(bvm *vm) {
   be_newobject(vm, "list");
   for (uint32_t i=0; i < BE_MAX_CB; i++) {
     if (be_cb_hooks[i].vm) {
@@ -237,7 +238,7 @@ static int32_t be_cb_get_cb_list(bvm *vm) {
  * We allow 4 parameters, or 3 if method (first arg is `self`)
  * This could be extended if needed
 \*********************************************************************************************/
-static int32_t call_berry_cb(int32_t num, int32_t v0, int32_t v1, int32_t v2, int32_t v3) {
+static int call_berry_cb(int num, int v0, int v1, int v2, int v3) {
   // call berry cb dispatcher
   int32_t ret = 0;
   // retrieve vm and function
@@ -264,6 +265,26 @@ static int32_t call_berry_cb(int32_t num, int32_t v0, int32_t v1, int32_t v2, in
   ret = be_toint(vm, -5);
   be_pop(vm, 5);    // remove result
   return ret;
+}
+
+/*********************************************************************************************\
+ * `be_cb_deinit`:
+ *  Clean any callback for this VM, they shouldn't call the registerd function anymore
+\*********************************************************************************************/
+void be_cb_deinit(bvm *vm) {
+  // remove all cb for this vm
+  for (int32_t slot = 0; slot < BE_MAX_CB; slot++) {
+    if (be_cb_hooks[slot].vm == vm) {
+      be_cb_hooks[slot].vm = NULL;
+      be_cb_hooks[slot].f.type == BE_NIL;
+    }
+  }
+  // remove the vm gen_cb for this vm
+  for (be_callback_handler_list_t **elt_ptr = &be_callback_handler_list_head; *elt_ptr != NULL; elt_ptr = &(*elt_ptr)->next) {
+    if (((*elt_ptr)->next != NULL) && ((*elt_ptr)->next->vm == vm)) {
+      (*elt_ptr)->next = (*elt_ptr)->next->next;
+    }
+  }
 }
 
 /* @const_object_info_begin

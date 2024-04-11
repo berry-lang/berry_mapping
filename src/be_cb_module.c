@@ -185,7 +185,6 @@ static int be_cb_make_cb(bvm *vm) {
 \*********************************************************************************************/
 static int be_cb_gen_cb(bvm *vm) {
   int32_t top = be_top(vm);
-  // tasmota_log_C(LOG_LEVEL_DEBUG, "BRY: gen_cb() called");
   if (top >= 1 && be_isfunction(vm, 1)) {
     // find first available slot
     int32_t slot;
@@ -276,7 +275,7 @@ void be_cb_deinit(bvm *vm) {
   for (int32_t slot = 0; slot < BE_MAX_CB; slot++) {
     if (be_cb_hooks[slot].vm == vm) {
       be_cb_hooks[slot].vm = NULL;
-      be_cb_hooks[slot].f.type == BE_NIL;
+      be_cb_hooks[slot].f.type = BE_NIL;
     }
   }
   // remove the vm gen_cb for this vm
